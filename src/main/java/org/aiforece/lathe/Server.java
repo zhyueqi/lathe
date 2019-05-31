@@ -21,9 +21,11 @@ public class Server extends Thread{
     private ServerSocketChannel serverSocketChannel;
     private Selector selector;
     private ConcurrentLinkedQueue<Session> sessionQueue;
+    private ConcurrentLinkedQueue<Plan> plans;
 
     public Server(ServerConfig config) throws IOException {
         this.sessionQueue = new ConcurrentLinkedQueue<>();
+        this.plans = new ConcurrentLinkedQueue<>();
         this.port = config.SERVER_PORT;
         this.hostAddress = config.SERVER_HOST;
         this.accept = true;
@@ -43,7 +45,8 @@ public class Server extends Thread{
         System.out.println("RUN!");
         while(accept){
             try {
-                sleep(5000);
+                //方便查看日志过程
+                sleep(2000);
                 for(Session session; (session = sessionQueue.poll())!=null;){
                     session.socketChannel.register(this.selector, session.eventsToBe, session);
                 }
@@ -79,14 +82,14 @@ public class Server extends Thread{
 
     protected void handleCurrentKey(SelectionKey currentKey){
         // 建立连接
-        if(false == currentKey.isValid()){
+        if(!currentKey.isValid()){
             return;
         }
         try {
             if(currentKey.isAcceptable()){
                 SocketChannel incomingChannel = serverSocketChannel.accept();
                 incomingChannel.configureBlocking(false);
-                Session session = new Session(incomingChannel, Session.READABLE, this.selector);
+                Session session = new Session(incomingChannel, Session.READABLE, this.selector, this.plans);
                 sessionQueue.add(session);
                 logger.info("Connection Accepted from: " + incomingChannel.getLocalAddress());
             }else {
@@ -103,6 +106,7 @@ public class Server extends Thread{
     public static void main(String[] args) throws IOException {
         ServerConfig serverConfig = new ServerConfig();
         Server server = new Server(serverConfig);
+        server.plans.add(new Plan("2", Plan.PLAN_GEN));
         server.start();
     }
 }

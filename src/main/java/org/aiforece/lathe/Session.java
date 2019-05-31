@@ -7,6 +7,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Created by zhyueqi on 2019/5/30.
@@ -24,13 +25,17 @@ public class Session {
     private  ByteBuffer readBuffer;
     private int packetSize;
     private int bytesReaded;
-
     private Packet toWrite;
 
     private int writed;
     private boolean closing;
 
-    public Session(SocketChannel socketChannel, int SelectionKey, Selector selector){
+    private ConcurrentLinkedQueue<Plan> plans;
+
+    public Session(SocketChannel socketChannel
+            , int SelectionKey
+            , Selector selector
+            , ConcurrentLinkedQueue<Plan> plans){
         this.socketChannel = socketChannel;
         this.eventsToBe = SelectionKey;
         this.selector = selector;
@@ -39,6 +44,7 @@ public class Session {
         this.bytesReaded = 0;
         this.writed = 0;
         this.closing = false;
+        this.plans = plans;
     }
 
     public void process() throws IOException {
@@ -52,7 +58,6 @@ public class Session {
     }
 
     protected void sessionWrite() throws IOException {
-        logger.info("sessionWrite");
         if(this.socketChannel.keyFor(selector).isValid() == false){
             logger.info("session write not valid");
             return;
@@ -69,7 +74,7 @@ public class Session {
 
     public void writeToClient(){
         String msg = "response to client!";
-        this.toWrite = new Packet(msg.getBytes());
+        this.toWrite = new PacketResponse(PacketResponse.TASK_EXECUTE, msg);
     }
 
 
@@ -77,8 +82,8 @@ public class Session {
         int length = this.socketChannel.write(packet.buffer);
         if(length > 0) writed+= length;
         if(false == packet.buffer.hasRemaining()){
-            logger.info("RESPONSE COMPLETE!");
             this.toWrite = null;
+            writed = 0;
             socketChannel.keyFor(selector).interestOps(READABLE);
             selector.wakeup();
         }
@@ -108,16 +113,14 @@ public class Session {
                 close();
             return;
         }
-
         // 解析报文、处理
-
         PacketResponse response = new PacketResponse(readBuffer);
         String message = response.body;
         readBuffer.clear();
         this.bytesReaded = 0;
         logger.info("报文内容：" + message);
-
-        writeToClient();
+        invokePlan(response);
+//        writeToClient();
         // 监听写出
         this.socketChannel.keyFor(selector).interestOps(WRITEABLE);
         selector.wakeup();
@@ -131,6 +134,28 @@ public class Session {
             if(key != null)
                 key.cancel();
             this.selector = null;
+        }
+    }
+
+    private void invokePlan(PacketResponse response){
+        if(response.taskType == PacketResponse.TASK_ACCQIRE){
+            Plan plan = plans.poll();
+            if(plan != null)
+                this.toWrite = new PacketResponse(PacketResponse.TASK_EXECUTE, plan.toString());
+            else
+                this.toWrite = new PacketResponse(PacketResponse.TASK_CONFIRM, "standby!");
+        }else if(response.taskType == PacketResponse.TASK_COMPLETE){
+            if(response.body.startsWith(Plan.SUBPLAN)){
+                String[] list = response.body.split("@")[1].split(";");
+                for(int i=0; i < list.length; i++){
+                    logger.info("add Plan, " + list[i]);
+                    Plan plan = new Plan(list[i]);
+                    plans.add(plan);
+                }
+            }
+            this.toWrite = new PacketResponse(PacketResponse.TASK_CONFIRM, "standby!");
+        }else {
+            this.toWrite = new PacketResponse(PacketResponse.TASK_CONFIRM, "standby!");
         }
     }
 

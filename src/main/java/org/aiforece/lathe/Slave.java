@@ -7,7 +7,6 @@ import java.io.InterruptedIOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-import java.util.concurrent.BlockingQueue;
 
 public class Slave implements Runnable {
     private static final Logger logger = Logger.getLogger(Slave.class);
@@ -56,10 +55,25 @@ public class Slave implements Runnable {
     }
 
     private PacketResponse execTask(PacketResponse response){
-        logger.info("task type: " + response.taskType);
-        logger.info("task body: " + response.body);
+//        logger.info("task type: " + response.taskType);
+//        logger.info("task body: " + response.body);
 
-        return new PacketResponse(PacketResponse.TASK_COMPLETE, "I'm DONE!" );
+        if(response.taskType == PacketResponse.TASK_EXECUTE){
+            if(response.body.startsWith(Plan.PLAN_GEN)){
+                Plan plan = new Plan(response.body);
+                logger.info("Client invoke PLAN_GEN, " + response.body);
+                return new PacketResponse(PacketResponse.TASK_COMPLETE, plan.execute_plan_gen());
+            }else if(response.body.startsWith(Plan.PLAN_SUM)){
+                Plan plan = new Plan(response.body);
+                logger.info("Client invoke PLAN_SUM, " + response.body);
+                return new PacketResponse(PacketResponse.TASK_COMPLETE, plan.execute_plan_sum());
+            } else{
+                return new PacketResponse(PacketResponse.TASK_ACCQIRE, "TASK NOT MATCH!");
+            }
+        }else{
+            return new PacketResponse(PacketResponse.TASK_ACCQIRE, "READY FOR NEW TASK!" );
+        }
+//        return new PacketResponse(PacketResponse.TASK_COMPLETE, "I'm DONE!" );
     }
 
 }
