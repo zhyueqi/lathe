@@ -34,7 +34,7 @@ public class Plan {
         }
         return stringBuffer.toString();
     }
-
+    // to-do : extract interface
     public String execute_plan_sum(){
         int x = Integer.parseInt(this.body);
         return x + 1 + " [RESULT!]";
