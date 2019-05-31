@@ -21,21 +21,27 @@ public class Session {
     protected Selector selector;
     protected int eventsToBe;
     protected int eventsReady;
-    private  byte[] buffer;
+    private  ByteBuffer readBuffer;
     private int packetSize;
     private int bytesReaded;
+
+    private Packet toWrite;
+
+    private int writed;
+    private boolean closing;
 
     public Session(SocketChannel socketChannel, int SelectionKey, Selector selector){
         this.socketChannel = socketChannel;
         this.eventsToBe = SelectionKey;
         this.selector = selector;
-        this.buffer = new byte[MAXPACKET];
+        this.readBuffer = ByteBuffer.allocate(MAXPACKET);
         this.packetSize = 0;
         this.bytesReaded = 0;
+        this.writed = 0;
+        this.closing = false;
     }
 
     public void process() throws IOException {
-
         if((eventsReady & READABLE) != 0){
             sessionRead();
         }
@@ -45,32 +51,57 @@ public class Session {
         }
     }
 
-    protected void sessionWrite() {
-        String responseMsg = "it's from server";
-        byte[] output = new byte[responseMsg.getBytes().length + 4];
-        Packet packet = new Packet(output);
-        packet.write(responseMsg);
-        
+    protected void sessionWrite() throws IOException {
+        logger.info("sessionWrite");
+        if(this.socketChannel.keyFor(selector).isValid() == false){
+            logger.info("session write not valid");
+            return;
+        }
+
+        if(this.socketChannel.isOpen() ==  false){
+            logger.info("client has been closed!");
+        }
+
+        if(this.toWrite != null){
+            transport(this.toWrite);
+        }
+    }
+
+    public void writeToClient(){
+        String msg = "response to client!";
+        this.toWrite = new Packet(msg.getBytes());
+    }
+
+
+    private void transport(Packet packet) throws IOException {
+        int length = this.socketChannel.write(packet.buffer);
+        if(length > 0) writed+= length;
+        if(false == packet.buffer.hasRemaining()){
+            logger.info("RESPONSE COMPLETE!");
+            this.toWrite = null;
+            socketChannel.keyFor(selector).interestOps(READABLE);
+            selector.wakeup();
+        }
     }
 
     protected void sessionRead() throws IOException {
-        ByteBuffer byteBuffer = ByteBuffer.wrap(this.buffer);
+
         if(packetSize == 0){
             // 未读读取到消息头
-            int readed = this.socketChannel.read(byteBuffer);
+            int readed = this.socketChannel.read(readBuffer);
             if(readed >=0) bytesReaded += readed;
             if(bytesReaded < 4 && readed == -1){
                 close();
                 return;
             }
-            this.packetSize = fromByteArray(this.buffer);
+            this.packetSize = fromByteArray(this.readBuffer.array());
             if(this.packetSize > MAXPACKET) {
                 close();
                 return;
             }
         }
         // 直到读取完整
-        int readed = this.socketChannel.read(byteBuffer);
+        int readed = this.socketChannel.read(readBuffer);
         if(readed >=0) bytesReaded += readed;
         if((bytesReaded < this.packetSize)){
             if(readed < 0)
@@ -79,9 +110,14 @@ public class Session {
         }
 
         // 解析报文、处理
-        String message = Packet.onStringMessage(buffer, byteBuffer.position());
-        byteBuffer.clear();
+
+        PacketResponse response = new PacketResponse(readBuffer);
+        String message = response.body;
+        readBuffer.clear();
+        this.bytesReaded = 0;
         logger.info("报文内容：" + message);
+
+        writeToClient();
         // 监听写出
         this.socketChannel.keyFor(selector).interestOps(WRITEABLE);
         selector.wakeup();
@@ -90,6 +126,7 @@ public class Session {
 
     public void close(){
         if(this.socketChannel.isOpen()){
+            this.closing = true;
             SelectionKey key = this.socketChannel.keyFor(this.selector);
             if(key != null)
                 key.cancel();

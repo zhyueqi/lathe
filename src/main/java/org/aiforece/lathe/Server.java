@@ -26,6 +26,7 @@ public class Server extends Thread{
         this.sessionQueue = new ConcurrentLinkedQueue<>();
         this.port = config.SERVER_PORT;
         this.hostAddress = config.SERVER_HOST;
+        this.accept = true;
         this.serverSocketChannel = ServerSocketChannel.open();
 
         InetSocketAddress address = new InetSocketAddress(hostAddress, port);
@@ -42,6 +43,7 @@ public class Server extends Thread{
         System.out.println("RUN!");
         while(accept){
             try {
+                sleep(5000);
                 for(Session session; (session = sessionQueue.poll())!=null;){
                     session.socketChannel.register(this.selector, session.eventsToBe, session);
                 }
@@ -69,6 +71,8 @@ public class Server extends Thread{
             }
             catch (IOException e) {
                 e.printStackTrace();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
     }
@@ -95,9 +99,6 @@ public class Server extends Thread{
         }
     }
 
-    protected  void handleConnection(SocketChannel client){
-
-    }
 
     public static void main(String[] args) throws IOException {
         ServerConfig serverConfig = new ServerConfig();
